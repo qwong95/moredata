@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="0c75cd59-cc5f-4ec9-8024-83e894733b85" >
+		<db:my-sql-connection host="REDACTED" port="3306" user="REDACTED" password="REDACTED" database="training_mc" >
+			<reconnection >
+				<reconnect-forever />
+			</reconnection>
+		</db:my-sql-connection>
+	</db:config>
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="77c9a56f-7d00-4a6d-b9d3-cb2dd22ab4d5" basePath="/api">
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<flow name="getCustomers_Flow" doc:id="b5a7d732-aa0a-413d-83f4-9850592bee7b" >
+		<http:listener doc:name="/getCustomers" doc:id="a43709a0-78a9-496e-b883-fd5cca34e693" config-ref="HTTP_Listener_config" path="/getCustomers"/>
+		<db:select doc:name="Select" doc:id="88ead062-ab52-4b3c-955a-020df6831de9" config-ref="Database_Config">
+			<db:sql >SELECT * from customer;</db:sql>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="dea8b328-8e43-49c4-b6ae-7cb4181cc935" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+import dw::Crypto
+output application/json
+fun factorial(num) = if (num > 1) num * factorial(num - 1) else 1
+---
+payload map 
+using (emailParts = ($.customer_emailId default ".@.") splitBy(/@/)) {
+    customerId: $.customer_id as String,
+    lastName: upper($.customer_lastName),
+    firstName: lower($.customer_firstName default ""),
+    phoneNumber: $.customer_phoneNumber default "",
+    emailId: $.customer_emailId default "",
+    SHA1_of_email: Crypto::SHA1($.customer_emailId default ""),
+    email_user_name: emailParts[0],
+    email_host_name: emailParts[1],
+    email_length: sizeOf ($.customer_emailId default ""),
+    email_reversed: ($.customer_emailId default "")[-1 to 0],
+    SSN: $.customer_SSN default "",
+    SSN_redacted: ($.customer_SSN default "") replace /[0-9]/ with("x"),
+    factorial_of_4: factorial(4),
+    pow_4_to_4: pow(4, 4),
+    three_div_two_ceil:  ceil(3/2),
+    three_div_two_floor: floor(3/2),
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="2e2c06ac-86bb-475e-a3e8-3b20d16af17a" message="#[payload]" />
+	</flow>
+	<flow name="createCustomers_Flow" doc:id="a2941522-6dbc-49af-b136-d8a3c30de554" >
+		<http:listener doc:name="/createCustomers" doc:id="4c452668-0e46-4f17-9af1-31b959453091" config-ref="HTTP_Listener_config" path="/createCustomers" outputMimeType="application/json"/>
+		<foreach doc:name="For Each" doc:id="4c01b16a-1365-4283-b19e-d1ef49f145d9" >
+			<db:insert doc:name="Insert" doc:id="ced46dd4-4a27-4763-8629-13b9dd8ce8aa" config-ref="Database_Config">
+				<db:sql >INSERT INTO training_mc.customer ( customer_id, customer_lastName, customer_firstName,customer_phoneNumber,customer_emailId,customer_SSN )
+   VALUES
+   ( :id, :lastName, :firstName, :phoneNumber, :emailId, :ssn);</db:sql>
+				<db:input-parameters ><![CDATA[#[{
+    id: payload.customerId,
+    lastName: payload.lastName,
+    firstName: payload.firstName,
+    phoneNumber: payload.phoneNumber,
+    emailId: payload.emailId,
+    ssn: payload.SSN
+}]]]></db:input-parameters>
+			</db:insert>
+		</foreach>
+		<logger level="INFO" doc:name="Logger" doc:id="4af033f1-6847-4156-aebf-1f9a7aae20fe" message="#[payload]" />
+		<ee:transform doc:name="Transform Message" doc:id="c37dd7bf-d17b-4dad-b43a-adaae94cbe33" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    result: payload
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
